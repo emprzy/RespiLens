@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useMantineColorScheme, Stack, Text, Center, SimpleGrid, Paper, Loader, Box, UnstyledButton } from '@mantine/core';
+import { useMantineColorScheme, Stack, Text, Center, SimpleGrid, Paper, Loader, Box, UnstyledButton, Alert } from '@mantine/core';
 import Plot from 'react-plotly.js';
 import ModelSelector from '../ModelSelector';
 import TitleRow from '../TitleRow';
@@ -225,14 +225,37 @@ const MetroPlotCard = ({
 
 const MetroCastView = ({ data, metadata, selectedDates, selectedModels, models, setSelectedModels, windowSize, getDefaultRange, selectedTarget }) => {
   const { colorScheme } = useMantineColorScheme();
-  const { handleLocationSelect, chartScale, intervalVisibility, showLegend, viewType } = useView();
+  const { handleLocationSelect, chartScale, intervalVisibility, showLegend, viewType, selectedLocation } = useView();
   const [childData, setChildData] = useState({});
   const [loadingChildren, setLoadingChildren] = useState(false);
   const [xAxisRange, setXAxisRange] = useState(null);
 
-  const stateName = data?.metadata?.location_name;
+  const rawLocationName = data?.metadata?.location_name;
   const hubName = getDatasetTitleFromView(viewType) || data?.metadata?.dataset;
-  const stateCode = METRO_STATE_MAP[stateName];
+
+  // Determine if this is a city or state, and get the state code
+  let stateName = rawLocationName;
+  let stateCode = null;
+
+  if (rawLocationName) {
+    // First check if it's a state (in METRO_STATE_MAP)
+    stateCode = METRO_STATE_MAP[rawLocationName];
+
+    // If not, check if it might be a city and find its state
+    if (!stateCode && metadata?.locations) {
+      const cityLocation = metadata.locations.find(l => l.location_name === rawLocationName);
+      if (cityLocation && cityLocation.location_name.includes(',')) {
+        // It's a city - location_name already includes the state
+        stateName = cityLocation.location_name;
+        // Extract state code from location_name (format: "City, ST")
+        const stateMatch = cityLocation.location_name.match(/,\s*([A-Z]{2})$/);
+        if (stateMatch) {
+          stateCode = stateMatch[1];
+        }
+      }
+    }
+  }
+
   const forecasts = data?.forecasts;
 
   const activeModels = useMemo(() => {
@@ -272,7 +295,26 @@ const MetroCastView = ({ data, metadata, selectedDates, selectedModels, models, 
     fetchChildren();
   }, [stateCode, metadata, selectedTarget]);
 
-  if (!selectedTarget) return <Center h={300}><Text>Please select a target.</Text></Center>;
+  if (!selectedTarget && data) return <Center h={300}><Text>Please select a target.</Text></Center>;
+
+  if (!data) {
+    const isNoStateSelected = selectedLocation === 'US';
+
+    return (
+      <Stack gap="xl">
+        <TitleRow
+          title={`— Flu MetroCast Forecasts`}
+          timestamp={metadata?.last_updated}
+        />
+        <Alert color={isNoStateSelected ? "gray" : "blue"} title={isNoStateSelected ? "Select a State" : "No Data Available"}>
+          {isNoStateSelected
+            ? "Please select a state from the location list to view MetroCast forecasts."
+            : "Forecast data is not available for the selected location. Please select a different state from the location list."
+          }
+        </Alert>
+      </Stack>
+    );
+  }
 
   return (
     <Stack gap="xl">
